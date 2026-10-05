@@ -68,7 +68,7 @@ if not api_key:
     st.info("💡 กรุณากรอก OpenRouter API Key ที่ Sidebar หรือตั้งค่าใน Secrets บน Streamlit Cloud เพื่อเริ่มต้นใช้งาน")
     st.stop()
 
-# ฟังก์ชันตรวจสอบสถานะ API ให้แสดงแถบเขียว/แดงอย่างแม่นยำ
+# ฟังก์ชันตรวจสอบสถานะ API (ฉบับแก้ไขปิดไม่ให้โชว์ Key/Label)
 def check_api_status(key: str) -> tuple[bool, str]:
     url = "https://openrouter.ai/api/v1/auth/key"
     headers = {"Authorization": f"Bearer {key}"}
@@ -76,8 +76,8 @@ def check_api_status(key: str) -> tuple[bool, str]:
         res = requests.get(url, headers=headers, timeout=10)
         res_data = res.json()
         if res.status_code == 200 and "data" in res_data:
-            label = res_data.get("data", {}).get("label", "Connected")
-            return True, f"พร้อมใช้งาน ({label})"
+            # ซ่อน Label/Key และส่งคืนเฉพาะข้อความสถานะ
+            return True, "พร้อมใช้งาน (Connected)"
         else:
             err = res_data.get("error", {}).get("message", res.text)
             return False, f"ขัดข้อง: {res.status_code} - {err}"
