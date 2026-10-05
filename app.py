@@ -22,7 +22,7 @@ st.title("💰 ระบบที่ปรึกษาภาษีเงิน�
 st.markdown("ค้นหาข้อมูลและตอบคำถามจากคลังเอกสารความรู้ภาษีเงินได้บุคคลธรรมดาอย่างแม่นยำ")
 
 # ==========================================
-# 2. การจัดการ OpenRouter API Key
+# 2. การจัดการ OpenRouter API Key และการเช็กสถานะ API
 # ==========================================
 if "OPENROUTER_API_KEY" in st.secrets:
     api_key = st.secrets["OPENROUTER_API_KEY"]
@@ -32,6 +32,29 @@ else:
 if not api_key:
     st.info("💡 กรุณากรอก OpenRouter API Key ที่ Sidebar หรือตั้งค่าใน Secrets บน Streamlit Cloud")
     st.stop()
+
+# ฟังก์ชันตรวจสอบสถานะ API
+def check_api_status(key: str) -> tuple[bool, str]:
+    url = "https://openrouter.ai/api/v1/auth/key"
+    headers = {"Authorization": f"Bearer {key}"}
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code == 200:
+            return True, "พร้อมใช้งาน (Connected)"
+        else:
+            err = res.json().get("error", {}).get("message", res.text)
+            return False, f"ขัดข้อง: {res.status_code} - {err}"
+    except Exception as e:
+        return False, f"ขัดข้อง: {str(e)}"
+
+api_online, api_status_msg = check_api_status(api_key)
+
+# แสดงแถบสถานะ API บน Sidebar
+st.sidebar.header("🔌 สถานะ API")
+if api_online:
+    st.sidebar.success(f"OpenRouter: {api_status_msg}")
+else:
+    st.sidebar.error(f"OpenRouter: {api_status_msg}")
 
 # ==========================================
 # 3. เตรียมระบบ RAG (Cache ไว้นานตลอดการเปิดแอป)
@@ -117,19 +140,19 @@ def search_documents(query: str, top_k: int = 3, distance_threshold: float = 25.
     return results
 
 def ask_openrouter(prompt: str) -> str:
-    """ส่ง Request ไปยัง OpenRouter API"""
+    """ส่ง Request ไปยัง OpenRouter API โดยกำหนด max_tokens ไว้ป้องกัน Error 402"""
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
     
-    # สามารถเปลี่ยน model เป็นรุ่นอื่นบน OpenRouter ได้ เช่น google/gemini-2.5-flash หรือ meta-llama/llama-3.3-70b-instruct
     payload = {
         "model": "google/gemini-2.5-flash",
         "messages": [
             {"role": "user", "content": prompt}
-        ]
+        ],
+        "max_tokens": 2000
     }
 
     try:
@@ -139,7 +162,6 @@ def ask_openrouter(prompt: str) -> str:
             res_json = response.json()
             return res_json["choices"][0]["message"]["content"]
         else:
-            # แจ้งสถานะขัดข้องพร้อมสาเหตุ
             err_msg = response.json().get("error", {}).get("message", response.text)
             return f"ขัดข้อง: {response.status_code} - {err_msg}"
             
@@ -156,24 +178,48 @@ def ask_rag(question: str):
     sources = sorted(list(set([c["source"] for c in retrieved_chunks])))
     
     prompt = PROMPT_TEMPLATE.format(context=context_text, question=question)
-    
-    # เรียก OpenRouter
     answer = ask_openrouter(prompt)
     return answer, sources
 
 # ==========================================
-# 5. ส่วนแสดงผล UI (Chat Interface)
+# 5. ตัวอย่างคำถาม 3 ข้อที่คลิกได้เลย (Quick Sample Questions)
+# ==========================================
+st.markdown("### 💡 ตัวอย่างคำถามที่พบบ่อย (คลิกเพื่อถามได้ทันที):")
+
+col1, col2, col3 = st.columns(3)
+
+sample_question = None
+
+with col1:
+    if st.button("📌 1. การหักลดหย่อนบุตรมีเงื่อนไขอย่างไร?"):
+        sample_question = "การหักลดหย่อนบุตรมีเงื่อนไขอย่างไร?"
+
+with col2:
+    if st.button("📌 2. เบี้ยประกันชีวิตหักลดหย่อนได้สูงสุดเท่าไร?"):
+        sample_question = "เบี้ยประกันชีวิตหักลดหย่อนได้สูงสุดเท่าไร?"
+
+with col3:
+    if st.button("📌 3. การเสียภาษีคาร์บอนคำนวณอย่างไร?"):
+        sample_question = "การเสียภาษีคาร์บอนคำนวณอย่างไร?"
+
+# ==========================================
+# 6. ส่วนแสดงผล UI (Chat Interface)
 # ==========================================
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# แสดงประวัติการคุย
+# แสดงประวัติการสนทนา
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# รับคำถามผู้ใช้
-if user_input := st.chat_input("สอบถามเรื่องภาษีเงินได้บุคคลธรรมดา..."):
+# ตัวแปรรับคำถาม (จะมาจาก Chat Input หรือมาจากการกดปุ่มตัวอย่างคำถาม)
+user_input = st.chat_input("สอบถามเรื่องภาษีเงินได้บุคคลธรรมดา...")
+
+if sample_question:
+    user_input = sample_question
+
+if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
@@ -182,7 +228,6 @@ if user_input := st.chat_input("สอบถามเรื่องภาษี
         with st.spinner("กำลังประมวลผล..."):
             answer, sources = ask_rag(user_input)
             
-            # หากเกิดข้อผิดพลาด ให้แสดงข้อความขัดข้องโดยไม่ต่อแหล่งอ้างอิง
             if answer.startswith("ขัดข้อง:"):
                 full_response = answer
             else:
