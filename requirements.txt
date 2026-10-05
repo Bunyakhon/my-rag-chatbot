@@ -1,8 +1,7 @@
 streamlit
-sentence-transformers
-faiss-cpu
 google-genai
-pythainlp
-pandas
-numpy
+openai
 requests
+numpy
+sentence-transformers
+scikit-learn

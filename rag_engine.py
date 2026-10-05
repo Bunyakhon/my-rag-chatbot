@@ -24,11 +24,40 @@ PROMPT_TEMPLATE = """คุณเป็นผู้เชี่ยวชาญ�
 คำถาม: {question}
 คำตอบ:"""
 
-# 3. ดึงรายชื่อโมเดลฟรีจาก OpenRouter
+# ----------------------------------------------------
+# ฟังก์ชันตรวจสอบสถานะการเชื่อมต่อ API (Health Check)
+# ----------------------------------------------------
+def check_gemini_connection():
+    """ตรวจสอบว่า Gemini API พร้อมใช้งานหรือไม่"""
+    if not GEMINI_API_KEY:
+        return False, "ไม่พบ GEMINI_API_KEY ใน Secrets"
+    try:
+        # ทดลองยิง Ping ข้อความสั้นๆ
+        gemini_client.models.generate_content(
+            model="gemini-3.8-flash",
+            contents="ping"
+        )
+        return True, "พร้อมใช้งาน (gemini-3.8-flash)"
+    except Exception as e:
+        return False, f"ขัดข้อง/ติด Quota ({str(e)})"
+
+def check_openrouter_connection():
+    """ตรวจสอบว่า OpenRouter API พร้อมใช้งานหรือไม่"""
+    if not OPENROUTER_API_KEY:
+        return False, "ไม่พบ OPENROUTER_API_KEY ใน Secrets"
+    try:
+        free_models = get_active_openrouter_free_models()
+        if not free_models:
+            return False, "ไม่พบโมเดลฟรีที่ active ในขณะนี้"
+        return True, f"พร้อมใช้งาน ({len(free_models)} โมเดลฟรี)"
+    except Exception as e:
+        return False, f"ขัดข้อง ({str(e)})"
+
+# 3. ดึงรายชื่อโมเดลฟรีจาก OpenRouter แบบไดนามิก
 @st.cache_data(ttl=3600)
 def get_active_openrouter_free_models():
     try:
-        response = requests.get("https://openrouter.ai/api/v1/models")
+        response = requests.get("https://openrouter.ai/api/v1/models", timeout=5)
         if response.status_code == 200:
             models = response.json().get("data", [])
             return [m["id"] for m in models if m["id"].endswith(":free")]
@@ -51,7 +80,7 @@ def ask_rag(question, search_documents_func):
     sources = list(set([c["source"] for c in retrieved_chunks]))
     prompt = PROMPT_TEMPLATE.format(context=context_text, question=question)
     
-    # 1. ลองใช้งาน Gemini (ใช้ gemini-3.8-flash)
+    # 1. พยายามเรียก Gemini API ก่อน
     if gemini_client:
         try:
             response = gemini_client.models.generate_content(
@@ -63,8 +92,8 @@ def ask_rag(question, search_documents_func):
                 "sources": sources, 
                 "results": retrieved_chunks
             }
-        except Exception as e:
-            # หาก Gemini ติด Error ทุกกรณี ให้ข้ามไปใช้ OpenRouter
+        except Exception:
+            # ติด Error/Quota ให้ข้ามไปใช้ OpenRouter
             pass
 
     # 2. Fallback สลับไปใช้ OpenRouter Free Models
@@ -87,7 +116,7 @@ def ask_rag(question, search_documents_func):
                 continue
 
     return {
-        "answer": "❌ ไม่สามารถดึงคำตอบจากระบบได้ในขณะนี้ กรุณาเว้นช่วงแล้วลองใหม่อีกครั้ง",
+        "answer": "❌ ไม่สามารถดึงคำตอบจากระบบได้ในขณะนี้ (ทั้งสองระบบไม่พร้อมใช้งาน) กรุณาเว้นช่วงแล้วลองใหม่อีกครั้ง",
         "sources": sources,
         "results": retrieved_chunks
     }
