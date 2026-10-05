@@ -1,53 +1,93 @@
+import os
+import requests
 import streamlit as st
-from rag_engine import ask_rag
+from google import genai
+from openai import OpenAI
 
-# Dummy หรือนำฟังก์ชัน search_documents จากโค้ดใน Colab มาวางตรงนี้
-def search_documents(query, top_k=3, distance_threshold=25.0):
-    # ใส่โค้ดค้นหา Vector Search เดิมของคุณที่นี่
-    return []
+# 1. ดึง API Keys จาก Streamlit Secrets
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
+OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY")
 
-st.set_page_config(page_title="TAX RAG Assistant", page_icon="🇹🇭", layout="centered")
+# 2. สร้าง Clients
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+openrouter_client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+) if OPENROUTER_API_KEY else None
 
-st.title("🇹🇭 ระบบผู้ช่วยตอบคำถามภาษีอากร (RAG System)")
-st.write("ค้นหาและตอบคำถามภาษีเงินได้บุคคลธรรมดาอ้างอิงจากเอกสารประมวลรัษฎากร")
+PROMPT_TEMPLATE = """คุณเป็นผู้เชี่ยวชาญด้านภาษีอากร ตอบคำถามโดยใช้อ้างอิงจากบริบทที่กำหนดให้เท่านั้น 
+หากไม่พบคำตอบในบริบท ให้ตอบว่า "ไม่พบข้อมูลในเอกสารความรู้ที่ระบบมี"
 
-# Sidebar สำหรับแสดงสถานะ
-with st.sidebar:
-    st.header("⚙️ การตั้งค่าระบบ")
-    st.info("ระบบเปิดใช้งาน Auto-Fallback เมื่อติด API Quota")
+บริบท:
+{context}
 
-# ช่องแชทสำหรับผู้ใช้งาน
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+คำถาม: {question}
+คำตอบ:"""
 
-# แสดงประวัติการสนทนา
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if "sources" in message and message["sources"]:
-            st.caption(f"📚 **อ้างอิง:** {', '.join(message['sources'])}")
+# 3. ดึงรายชื่อโมเดลฟรีจาก OpenRouter
+@st.cache_data(ttl=3600)
+def get_active_openrouter_free_models():
+    try:
+        response = requests.get("https://openrouter.ai/api/v1/models")
+        if response.status_code == 200:
+            models = response.json().get("data", [])
+            return [m["id"] for m in models if m["id"].endswith(":free")]
+    except Exception:
+        pass
+    return ["google/gemini-2.0-flash-exp:free", "meta-llama/llama-3.1-8b-instruct:free"]
 
-# รับคำถามใหม่
-if prompt := st.chat_input("พิมพ์คำถามภาษีของคุณที่นี่..."):
-    # บันทึกคำถามผู้ใช้
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# 4. ฟังก์ชันค้นหาและตอบคำถาม
+def ask_rag(question, search_documents_func):
+    retrieved_chunks = search_documents_func(question, top_k=3, distance_threshold=25.0)
+    
+    if not retrieved_chunks:
+        return {
+            "answer": "ไม่พบข้อมูลในเอกสารความรู้ที่ระบบมี",
+            "sources": [],
+            "results": []
+        }
+    
+    context_text = "\n\n---\n\n".join([c["text"] for c in retrieved_chunks])
+    sources = list(set([c["source"] for c in retrieved_chunks]))
+    prompt = PROMPT_TEMPLATE.format(context=context_text, question=question)
+    
+    # 1. ลองใช้งาน Gemini (ใช้ gemini-3.8-flash)
+    if gemini_client:
+        try:
+            response = gemini_client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=prompt
+            )
+            return {
+                "answer": response.text, 
+                "sources": sources, 
+                "results": retrieved_chunks
+            }
+        except Exception as e:
+            # หาก Gemini ติด Error ทุกกรณี ให้ข้ามไปใช้ OpenRouter
+            pass
 
-    # ประมวลผลคำตอบ
-    with st.chat_message("assistant"):
-        with st.spinner("กำลังค้นหาเอกสารและประมวลผลคำตอบ..."):
-            res = ask_rag(prompt, search_documents)
-            answer = res["answer"]
-            sources = res.get("sources", [])
-            
-            st.markdown(answer)
-            if sources:
-                st.caption(f"📚 **อ้างอิง:** {', '.join(sources)}")
-            
-            # บันทึกคำตอบลง Session
-            st.session_state.messages.append({
-                "role": "assistant", 
-                "content": answer,
-                "sources": sources
-            })
+    # 2. Fallback สลับไปใช้ OpenRouter Free Models
+    free_models = get_active_openrouter_free_models()
+    if openrouter_client:
+        for model_name in free_models[:5]:
+            try:
+                response = openrouter_client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    timeout=15
+                )
+                answer_text = response.choices[0].message.content
+                return {
+                    "answer": f"*(ตอบโดย OpenRouter - {model_name})*\n\n{answer_text}",
+                    "sources": sources,
+                    "results": retrieved_chunks
+                }
+            except Exception:
+                continue
+
+    return {
+        "answer": "❌ ไม่สามารถดึงคำตอบจากระบบได้ในขณะนี้ กรุณาเว้นช่วงแล้วลองใหม่อีกครั้ง",
+        "sources": sources,
+        "results": retrieved_chunks
+    }
