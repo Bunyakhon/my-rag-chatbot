@@ -182,25 +182,32 @@ def ask_rag(question: str):
     return answer, sources
 
 # ==========================================
-# 5. ตัวอย่างคำถาม 3 ข้อที่คลิกได้เลย (Quick Sample Questions)
+# 5. ตัวอย่างคำถาม 5 ข้อที่คลิกได้เลย (Quick Sample Questions)
 # ==========================================
-st.markdown("### 💡 ตัวอย่างคำถามที่พบบ่อย (คลิกเพื่อถามได้ทันที):")
-
-col1, col2, col3 = st.columns(3)
+st.markdown("### 💡 ตัวอย่างคำถามที่ทดสอบ (คลิกเพื่อถามได้ทันที):")
 
 sample_question = None
 
+# แถวที่ 1: คำถามที่มีข้อมูลในเอกสาร
+col1, col2, col3 = st.columns(3)
 with col1:
-    if st.button("📌 1. การหักลดหย่อนบุตรมีเงื่อนไขอย่างไร?"):
-        sample_question = "การหักลดหย่อนบุตรมีเงื่อนไขอย่างไร?"
-
+    if st.button("📌 1. เงินได้พึงประเมินคืออะไร?", use_container_width=True):
+        sample_question = "เงินได้พึงประเมินคืออะไร?"
 with col2:
-    if st.button("📌 2. เบี้ยประกันชีวิตหักลดหย่อนได้สูงสุดเท่าไร?"):
-        sample_question = "เบี้ยประกันชีวิตหักลดหย่อนได้สูงสุดเท่าไร?"
-
+    if st.button("📌 2. ค่าลดหย่อนภาษีส่วนตัวได้เท่าไหร่?", use_container_width=True):
+        sample_question = "ค่าลดหย่อนภาษีส่วนตัวได้เท่าไหร่?"
 with col3:
-    if st.button("📌 3. การเสียภาษีคาร์บอนคำนวณอย่างไร?"):
-        sample_question = "การเสียภาษีคาร์บอนคำนวณอย่างไร?"
+    if st.button("📌 3. ใครบ้างที่มีหน้าที่ยื่น ภ.ง.ด.94?", use_container_width=True):
+        sample_question = "ใครบ้างที่มีหน้าที่ยื่น ภ.ง.ด.94?"
+
+# แถวที่ 2: คำถามที่ไม่มีข้อมูลในคลังเอกสาร (ทดสอบการปฏิเสธคำตอบ)
+col4, col5 = st.columns(2)
+with col4:
+    if st.button("❓ 4. ภาษีมรดกมีวิธีคำนวณอย่างไร?", use_container_width=True):
+        sample_question = "ภาษีมรดกมีวิธีคำนวณอย่างไร?"
+with col5:
+    if st.button("❓ 5. ภาษีสำหรับธุรกิจเฉพาะมีอะไรบ้าง?", use_container_width=True):
+        sample_question = "ภาษีสำหรับธุรกิจเฉพาะมีอะไรบ้าง?"
 
 # ==========================================
 # 6. ส่วนแสดงผล UI (Chat Interface)
