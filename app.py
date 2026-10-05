@@ -10,7 +10,7 @@ from sentence_transformers import SentenceTransformer
 from pythainlp.util import normalize
 
 # ==========================================
-# 1. ตั้งค่าหน้าตา Streamlit App
+# 1. ตั้งค่าหน้าตา Streamlit App & Custom CSS
 # ==========================================
 st.set_page_config(
     page_title="ระบบตอบคำถามภาษีเงินได้บุคคลธรรมดา",
@@ -18,8 +18,43 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("💰 ระบบที่ปรึกษาภาษีเงินได้บุคคลธรรมดา (RAG Assistant)")
-st.markdown("ค้นหาข้อมูลและตอบคำถามจากคลังเอกสารความรู้ภาษีเงินได้บุคคลธรรมดาอย่างแม่นยำ")
+# ตกแต่ง UI ด้วย Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #1E3A8A;
+        margin-bottom: 0.2rem;
+    }
+    .sub-header {
+        font-size: 1rem;
+        color: #4B5563;
+        margin-bottom: 1.5rem;
+    }
+    .stButton>button {
+        border-radius: 8px;
+        border: 1px solid #E5E7EB;
+        transition: all 0.2s ease;
+    }
+    .stButton>button:hover {
+        border-color: #2563EB;
+        color: #2563EB;
+        background-color: #EFF6FF;
+    }
+    .status-card {
+        padding: 1rem;
+        border-radius: 8px;
+        background-color: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        margin-bottom: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="main-header">💰 ระบบที่ปรึกษาภาษีเงินได้บุคคลธรรมดา (RAG Assistant)</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-header">ค้นหาข้อมูลและตอบคำถามจากคลังเอกสารความรู้ภาษีเงินได้บุคคลธรรมดาอย่างแม่นยำด้วยปัญญาประดิษฐ์</div>', unsafe_allow_html=True)
+st.divider()
 
 # ==========================================
 # 2. การจัดการ OpenRouter API Key และการเช็กสถานะ API
@@ -27,22 +62,24 @@ st.markdown("ค้นหาข้อมูลและตอบคำถาม�
 if "OPENROUTER_API_KEY" in st.secrets:
     api_key = st.secrets["OPENROUTER_API_KEY"]
 else:
-    api_key = st.sidebar.text_input("กรุณากรอก OpenRouter API Key", type="password")
+    api_key = st.sidebar.text_input("🔑 กรุณากรอก OpenRouter API Key", type="password")
 
 if not api_key:
-    st.info("💡 กรุณากรอก OpenRouter API Key ที่ Sidebar หรือตั้งค่าใน Secrets บน Streamlit Cloud")
+    st.info("💡 กรุณากรอก OpenRouter API Key ที่ Sidebar หรือตั้งค่าใน Secrets บน Streamlit Cloud เพื่อเริ่มต้นใช้งาน")
     st.stop()
 
-# ฟังก์ชันตรวจสอบสถานะ API
+# ฟังก์ชันตรวจสอบสถานะ API ให้แสดงแถบเขียว/แดงอย่างแม่นยำ
 def check_api_status(key: str) -> tuple[bool, str]:
     url = "https://openrouter.ai/api/v1/auth/key"
     headers = {"Authorization": f"Bearer {key}"}
     try:
         res = requests.get(url, headers=headers, timeout=10)
-        if res.status_code == 200:
-            return True, "พร้อมใช้งาน (Connected)"
+        res_data = res.json()
+        if res.status_code == 200 and "data" in res_data:
+            label = res_data.get("data", {}).get("label", "Connected")
+            return True, f"พร้อมใช้งาน ({label})"
         else:
-            err = res.json().get("error", {}).get("message", res.text)
+            err = res_data.get("error", {}).get("message", res.text)
             return False, f"ขัดข้อง: {res.status_code} - {err}"
     except Exception as e:
         return False, f"ขัดข้อง: {str(e)}"
@@ -50,11 +87,11 @@ def check_api_status(key: str) -> tuple[bool, str]:
 api_online, api_status_msg = check_api_status(api_key)
 
 # แสดงแถบสถานะ API บน Sidebar
-st.sidebar.header("🔌 สถานะ API")
+st.sidebar.header("⚙️ การตั้งค่า & สถานะ")
 if api_online:
-    st.sidebar.success(f"OpenRouter: {api_status_msg}")
+    st.sidebar.success(f"🟢 **OpenRouter API:** {api_status_msg}")
 else:
-    st.sidebar.error(f"OpenRouter: {api_status_msg}")
+    st.sidebar.error(f"🔴 **OpenRouter API:** {api_status_msg}")
 
 # ==========================================
 # 3. เตรียมระบบ RAG (Cache ไว้นานตลอดการเปิดแอป)
@@ -107,6 +144,15 @@ def load_and_prepare_rag():
 
 embedding_model, index, chunks, clean_text = load_and_prepare_rag()
 
+# แสดงข้อมูลคลังเอกสารใน Sidebar
+st.sidebar.markdown("---")
+st.sidebar.subheader("📚 คลังข้อมูลความรู้")
+st.sidebar.info(f"จำนวนชิ้นส่วนข้อมูล (Chunks): **{len(chunks)}** ชิ้น")
+
+if st.sidebar.button("🗑️ ล้างประวัติการสนทนา", use_container_width=True):
+    st.session_state.messages = []
+    st.rerun()
+
 # ==========================================
 # 4. ฟังก์ชัน RAG & เรียกใช้งาน OpenRouter API
 # ==========================================
@@ -140,7 +186,6 @@ def search_documents(query: str, top_k: int = 3, distance_threshold: float = 25.
     return results
 
 def ask_openrouter(prompt: str) -> str:
-    """ส่ง Request ไปยัง OpenRouter API โดยกำหนด max_tokens ไว้ป้องกัน Error 402"""
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -184,30 +229,33 @@ def ask_rag(question: str):
 # ==========================================
 # 5. ตัวอย่างคำถาม 5 ข้อที่คลิกได้เลย (Quick Sample Questions)
 # ==========================================
-st.markdown("### 💡 ตัวอย่างคำถามที่ทดสอบ (คลิกเพื่อถามได้ทันที):")
+st.subheader("💡 ตัวอย่างคำถามทดสอบ")
+st.caption("คลิกเลือกคำถามด้านล่างเพื่อทดสอบการตอบคำถามของระบบได้ทันที")
 
 sample_question = None
 
 # แถวที่ 1: คำถามที่มีข้อมูลในเอกสาร
 col1, col2, col3 = st.columns(3)
 with col1:
-    if st.button("📌 1. เงินได้พึงประเมินคืออะไร?", use_container_width=True):
+    if st.button("📌 เงินได้พึงประเมินคืออะไร?", use_container_width=True):
         sample_question = "เงินได้พึงประเมินคืออะไร?"
 with col2:
-    if st.button("📌 2. ค่าลดหย่อนภาษีส่วนตัวได้เท่าไหร่?", use_container_width=True):
+    if st.button("📌 ค่าลดหย่อนภาษีส่วนตัวได้เท่าไหร่?", use_container_width=True):
         sample_question = "ค่าลดหย่อนภาษีส่วนตัวได้เท่าไหร่?"
 with col3:
-    if st.button("📌 3. ใครบ้างที่มีหน้าที่ยื่น ภ.ง.ด.94?", use_container_width=True):
+    if st.button("📌 ใครบ้างที่มีหน้าที่ยื่น ภ.ง.ด.94?", use_container_width=True):
         sample_question = "ใครบ้างที่มีหน้าที่ยื่น ภ.ง.ด.94?"
 
-# แถวที่ 2: คำถามที่ไม่มีข้อมูลในคลังเอกสาร (ทดสอบการปฏิเสธคำตอบ)
+# แถวที่ 2: คำถามที่ไม่มีข้อมูลในคลังเอกสาร
 col4, col5 = st.columns(2)
 with col4:
-    if st.button("❓ 4. ภาษีมรดกมีวิธีคำนวณอย่างไร?", use_container_width=True):
+    if st.button("❓ ภาษีมรดกมีวิธีคำนวณอย่างไร?", use_container_width=True):
         sample_question = "ภาษีมรดกมีวิธีคำนวณอย่างไร?"
 with col5:
-    if st.button("❓ 5. ภาษีสำหรับธุรกิจเฉพาะมีอะไรบ้าง?", use_container_width=True):
+    if st.button("❓ ภาษีสำหรับธุรกิจเฉพาะมีอะไรบ้าง?", use_container_width=True):
         sample_question = "ภาษีสำหรับธุรกิจเฉพาะมีอะไรบ้าง?"
+
+st.markdown("---")
 
 # ==========================================
 # 6. ส่วนแสดงผล UI (Chat Interface)
@@ -220,8 +268,8 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# ตัวแปรรับคำถาม (จะมาจาก Chat Input หรือมาจากการกดปุ่มตัวอย่างคำถาม)
-user_input = st.chat_input("สอบถามเรื่องภาษีเงินได้บุคคลธรรมดา...")
+# ตัวแปรรับคำถาม
+user_input = st.chat_input("พิมพ์คำถามภาษีเงินได้บุคคลธรรมดาที่นี่...")
 
 if sample_question:
     user_input = sample_question
@@ -232,7 +280,7 @@ if user_input:
         st.markdown(user_input)
 
     with st.chat_message("assistant"):
-        with st.spinner("กำลังประมวลผล..."):
+        with st.spinner("🔍 กำลังค้นหาข้อมูลและประมวลผลคำตอบ..."):
             answer, sources = ask_rag(user_input)
             
             if answer.startswith("ขัดข้อง:"):
