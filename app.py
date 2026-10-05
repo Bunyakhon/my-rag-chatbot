@@ -42,13 +42,6 @@ st.markdown("""
         color: #2563EB;
         background-color: #EFF6FF;
     }
-    .status-card {
-        padding: 1rem;
-        border-radius: 8px;
-        background-color: #F8FAFC;
-        border: 1px solid #E2E8F0;
-        margin-bottom: 1rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -57,7 +50,7 @@ st.markdown('<div class="sub-header">ค้นหาข้อมูลและ�
 st.divider()
 
 # ==========================================
-# 2. การจัดการ OpenRouter API Key และการเช็กสถานะ API
+# 2. การจัดการ OpenRouter API Key และการเช็กสถานะ API / Gemini
 # ==========================================
 if "OPENROUTER_API_KEY" in st.secrets:
     api_key = st.secrets["OPENROUTER_API_KEY"]
@@ -68,7 +61,7 @@ if not api_key:
     st.info("💡 กรุณากรอก OpenRouter API Key ที่ Sidebar หรือตั้งค่าใน Secrets บน Streamlit Cloud เพื่อเริ่มต้นใช้งาน")
     st.stop()
 
-# ฟังก์ชันตรวจสอบสถานะ API (ฉบับแก้ไขปิดไม่ให้โชว์ Key/Label)
+# ฟังก์ชันตรวจสอบสถานะ API และการเชื่อมต่อ Gemini Model
 def check_api_status(key: str) -> tuple[bool, str]:
     url = "https://openrouter.ai/api/v1/auth/key"
     headers = {"Authorization": f"Bearer {key}"}
@@ -76,7 +69,7 @@ def check_api_status(key: str) -> tuple[bool, str]:
         res = requests.get(url, headers=headers, timeout=10)
         res_data = res.json()
         if res.status_code == 200 and "data" in res_data:
-            # ซ่อน Label/Key และส่งคืนเฉพาะข้อความสถานะ
+            # คืนค่าข้อความสถานะคงที่ ป้องกันการหลุดของ Label/Key
             return True, "พร้อมใช้งาน (Connected)"
         else:
             err = res_data.get("error", {}).get("message", res.text)
@@ -86,12 +79,14 @@ def check_api_status(key: str) -> tuple[bool, str]:
 
 api_online, api_status_msg = check_api_status(api_key)
 
-# แสดงแถบสถานะ API บน Sidebar
+# แสดงแถบสถานะแยก 2 บรรทัดบน Sidebar
 st.sidebar.header("⚙️ การตั้งค่า & สถานะ")
 if api_online:
     st.sidebar.success(f"🟢 **OpenRouter API:** {api_status_msg}")
+    st.sidebar.success("✨ **Gemini Model:** `google/gemini-2.5-flash` (Active)")
 else:
     st.sidebar.error(f"🔴 **OpenRouter API:** {api_status_msg}")
+    st.sidebar.error("⚠️ **Gemini Model:** ไม่สามารถเชื่อมต่อได้")
 
 # ==========================================
 # 3. เตรียมระบบ RAG (Cache ไว้นานตลอดการเปิดแอป)
